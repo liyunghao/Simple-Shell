@@ -1,5 +1,5 @@
 TARGET = ./npshell
-OBJ = noop number removetag removetag0
+OBJ = bin/noop bin/number bin/removetag bin/removetag0
 CPP = g++
 SRC = $(OBJ:=.cpp)
 
