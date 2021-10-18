@@ -14,20 +14,10 @@
 
 using namespace std;
 
-// todo -> 處理好指令帶參數的狀況 e.g. grep noop, parse 沒處理好
 
 
 
 vector<string> parse (string cmd) {
-	/*
-	stringstream ss(cmd);
-	string s;
-	vector<string> res;
-	while (ss >> s) {
-		res.pb(s);
-	}
-	return res;
-	*/
 	vector<string> res;
 	string delim = "|";
 	char *c = strdup(cmd.c_str());
@@ -40,7 +30,7 @@ vector<string> parse (string cmd) {
 	for (int i = 0; i < res.size(); i++) {
 		res[i].erase(0, res[i].find_first_not_of(" "));
 		res[i].erase(res[i].find_last_not_of(" ") + 1);
-		cout << res[i] << '\n';
+		//cout << res[i] << '\n';
 	}
 	return res;
 }
@@ -59,10 +49,13 @@ void sigHandler(int signo) {
 int main () {
 	flag = 1;
 	// signal(SIGCHLD, sigHandler);
+	setenv("PATH", "bin:.", 1);
 	while (1) {
 		cout << "% ";
 		string input;
 		getline(cin, input);
+		if (!cin)
+			break;
 		vector<string> list = parse(input);
 		vector<string> cmd;
 	
@@ -84,7 +77,6 @@ int main () {
 				return -1;
 			}
 		}
-		cout << cmd[0] << '\n';
 		if (cmd[0] == "exit") {
 			//cout << "\n" ;
 			return 0;
@@ -93,6 +85,34 @@ int main () {
 		
 
 		for (int i = 0; i < cmd.size(); i++) {
+			
+			char* c = strdup(cmd[i].c_str());
+			char* tok = strtok(c, " ");
+			char* argv[256];
+			int cnt = 0;
+			while (tok) {
+				argv[cnt++] = tok;
+				tok = strtok(NULL, " ");
+			}
+			argv[cnt] = NULL;
+			if ( !strncmp(argv[0], "printenv", 8) ) {
+				if (cnt < 2) {
+					cerr << "Command error\n";
+					return -1;
+				}
+				cout << getenv(argv[1]) << '\n';
+				continue;
+			} else if ( !strncmp(argv[0], "setenv", 6) ){
+				if (cnt < 3) {
+					cerr << "Command error\n";
+					continue;
+				}
+				if (setenv(argv[1], argv[2], 1) < 0) {
+					cout << errno << '\n';
+				}
+				continue;
+			} 
+			
 			int pid = fork();
 			if (pid == 0) {
 				if (cmd.size() != 1) { // only needed when two process gonna communicate
@@ -108,36 +128,11 @@ int main () {
 						close(pipefd[i]);
 					}
 				}
-				char* c = strdup(cmd[i].c_str());
-				char* tok = strtok(c, " ");
-				char* argv[256];
-				int cnt = 0;
-				while (tok) {
-					argv[cnt++] = tok;
-					tok = strtok(NULL, " ");
-				}
-				argv[cnt] = NULL;
-						
-				if ( !strncmp(argv[0], "printenv", 8) ) {
-					if (cnt < 2) {
-						cerr << "Command error\n";
-						return -1;
-					}
-					cout << getenv(argv[1]) << '\n';
-					return 0;
-				} else if ( !strncmp(argv[0], "setenv", 6) ){
-					if (cnt < 3) {
-						cerr << "Command error\n";
-						return -1;
-					}
 
-					setenv(argv[1], argv[2], 1);
-					return 0;
-				} else {
-					if (execvp(argv[0], argv) < 0 ) {
-						cerr << "Unknown command: [" << argv[0] << "].\n";
-						return -1;
-					}
+				if (execvp(argv[0], argv) < 0 ) {
+					cerr << "Unknown command: [" << argv[0] << "].\n";
+					return -1;
+				
 				}
 			
 			} 
