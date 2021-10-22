@@ -1,3 +1,0 @@
-printenv PATH
-setenv VAR 122
-printenv VAR
