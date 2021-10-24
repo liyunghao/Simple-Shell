@@ -41,10 +41,9 @@ vector<string> parse (string cmd) {
 void sigHandler(int signo) {
 	pid_t pid;
 	int stat;
-	//cout << "recv\n";
 	while((pid = waitpid(-1, &stat, WNOHANG) > 0 )) {
-		cout << "sig proc\n";
-		cout << pid << " is exited\n";
+		//cout << "sig proc\n";
+		//cout << pid << " is exited\n";
 	}
 	return;
 }
@@ -55,14 +54,19 @@ int main () {
 	int rip = 0;
 	map<int, int[2]> mp;
 	while (1) {
-		rip++;
-		cout << "% ";
+		string prompt = "% ";
+		write(STDOUT_FILENO, "% ", 2);
+		
 		string input;
 		getline(cin, input);
-		if (!cin)
+		if (!cin) {
 			break;
+		}
 		if (input.empty())
 			continue;
+		//write(STDOUT_FILENO, input.c_str(), input.size());
+		//write(STDOUT_FILENO, "\n", 2);
+		rip++;
 		vector<string> cmd = parse(input);
 		int np = 0, exp = 0;
 		int idx1 = input.find_last_of("|");
@@ -106,25 +110,28 @@ int main () {
 				mp[rip + exp][1] = fd[1];	
 			}
 		}
+
 		//cout << "np: " << np << '\n';
 		//cout << "exp: " << exp << '\n';
 		//cout << "filename: " << filename << '\n';
 		int cmdlen = cmd.size();
 		int pipeSz = cmdlen - 1;
 		// open pipe for process
-		
+		/*
 		int pipefd[2*pipeSz];
 		for (int i = 0; i < pipeSz; i++) {
 			if ( pipe(pipefd + i*2) ) {
-				cerr << "pipe error\n";
+				perror("pipe error");
 				return -1;
 			}
 		}
+		*/
 
 		if (cmd[0] == "exit") {
 			return 0;
 		} 
-
+		int lastpid = 0;
+		int *prev = nullptr, *cur = nullptr;
 		for (int i = 0; i < cmd.size(); i++) {
 			
 			char* c = strdup(cmd[i].c_str());
@@ -141,7 +148,8 @@ int main () {
 					cerr << "Command error\n";
 					return -1;
 				}
-				cout << getenv(argv[1]) << '\n';
+				if ( getenv(argv[1]) != NULL) 
+					cout << getenv(argv[1]) << '\n';
 				continue;
 			} else if ( !strncmp(argv[0], "setenv", 6) ){
 				if (cnt < 3) {
@@ -154,36 +162,56 @@ int main () {
 				continue;
 			} 
 			
-			int pid = fork();
-			if ( pid == -1) {
-				while (pid != -1) {
-					pid = fork();
-				}
+			if (i != cmd.size()-1) {
+				cur = new int[2];
+				while ( pipe(cur) );
 			}
+			
+			int pid;
+
+			while ( (pid = fork()) == -1) ;
+			
+			lastpid = pid;
+				
+			if (mp.find(rip) != mp.end())
+				close(mp[rip][1]);
 			if (pid == 0) {
 				if (cmd.size() != 1) { // only needed when two process gonna communicate
 					if (i == 0) { // first process
+						
 						if (mp.find(rip) != mp.end()) {
 							dup2(mp[rip][0], STDIN_FILENO);
 						}
-						dup2(pipefd[1], STDOUT_FILENO);
+						dup2(cur[1], STDOUT_FILENO);
+						close(cur[0]);
+						close(cur[1]);
+					
 					} else if (i == cmd.size()-1) { // last process
-						dup2(pipefd[2*i-2], STDIN_FILENO);
+						dup2(prev[0], STDIN_FILENO);
+						close(prev[0]);
+						close(prev[1]);
+						
 						if (np) {
 							dup2(mp[rip+np][1], STDOUT_FILENO);
 						} else if (exp) {
 							dup2(mp[rip+exp][1], STDOUT_FILENO);
 							dup2(mp[rip+exp][1], STDERR_FILENO);
 						} else if (filename != "") {
-							int f = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+							int f;
+							if (filename != "") {
+								f = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+							}
 							dup2(f, STDOUT_FILENO);
+							close(f);
 						}
 					} else {
-						dup2(pipefd[2*i-2], STDIN_FILENO);
-						dup2(pipefd[2*i+1], STDOUT_FILENO);
-					}
-					for (int i = 0; i < 2*pipeSz; i++) { // close all pipe
-						close(pipefd[i]);
+						dup2(prev[0], STDIN_FILENO);
+						close(prev[0]);
+						close(prev[1]);
+						dup2(cur[1], STDOUT_FILENO);	
+						close(cur[0]);
+						close(cur[1]);
+
 					}
 				} else {
 					if (mp.find(rip) != mp.end()) {
@@ -194,39 +222,48 @@ int main () {
 					} else if (exp) {
 						dup2(mp[rip+exp][1], STDOUT_FILENO);
 						dup2(mp[rip+exp][1], STDERR_FILENO);
-					} else if (filename != "") {
-						int f = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
-						dup2(f, STDOUT_FILENO);
+					} else if (filename != "") {	
+						int f;
+						if (filename != "") {
+							f = open(filename.c_str(), O_WRONLY | O_CREAT | O_TRUNC, S_IRWXU);
+						}	
+						if ( dup2(f, STDOUT_FILENO)  == -1) {
+							perror("dup2 error");
+						}
+						close(f);
 					}
-				}
 
+				}
+				
 				if (execvp(argv[0], argv) < 0 ) {
+					// poss
 					cerr << "Unknown command: [" << argv[0] << "].\n";
 					return -1;
-				
 				}
-				cout << "here\n";	
-			} 
-		}
+			} else {
+				if (prev) {
+					close(prev[0]);
+					close(prev[1]);
+					delete[] prev;
+				}
+				prev = cur;
+			}
 
-		//cout << "1\n";
-		for (int i = 0; i < 2*pipeSz; i++) {
-			close(pipefd[i]);
 		}
-		//cout << "2\n";
-		//cout << cmdlen << '\n';
+		
+		
 		int status;
+		if ( np == 0 && exp == 0) {
+			waitpid(lastpid, nullptr, WUNTRACED);
+		}
+		/*
 		for (int i = 0; i < cmdlen; i++) {
-		//	cout << "wait\n";
 			wait(&status);
 		}
-		//cout << 3 << '\n';
-		if (mp.find(rip+1) != mp.end()) {
-			close(mp[rip+1][1]);
-		}
+		*/
 		if (mp.find(rip) != mp.end()) {
-			//close(mp[rip][1]);
-			//close(mp[rip][0]);
+			close(mp[rip][1]);
+			close(mp[rip][0]);
 			mp.erase(rip);
 		}
 		
